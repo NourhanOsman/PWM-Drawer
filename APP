@@ -1,0 +1,109 @@
+#define F_CPU 16000000
+#include "STD_TYPES.h"
+#include "DIO_interface.h"
+#include "TIMER_interface.h"
+#include "EXTI_interface.h"
+#include "GIE_interface.h"
+#include "CLCD_interface.h"
+
+
+volatile static f32 SW_ICU_TotalTicks=0;
+volatile static f32 SW_ICU_OnTicks=0;
+volatile static f32 SW_ICU_DutyCycle=0;
+volatile static f32 SW_ICU_Frequency=0;
+volatile static u8  COL_NO=0;
+volatile static f32  TickTime=0.004; //in ms (Prescaler/F_CPU)
+
+
+void SW_ICU(void);
+
+int main(void)
+{
+	/* INT0 pin input*/
+	DIO_u8SetPinDirection(DIO_PORTD,DIO_PIN2,DIO_PIN_INPUT);
+	/* output for SW PWM*/
+	DIO_u8SetPinDirection(DIO_PORTB,DIO_PIN3,DIO_PIN_OUTPUT);
+	
+	
+	/*CTRLpins direction*/
+	//RS
+	DIO_u8SetPinDirection(DIO_PORTB,DIO_PIN0,DIO_PIN_OUTPUT);
+	//RW
+	DIO_u8SetPinDirection(DIO_PORTB,DIO_PIN1,DIO_PIN_OUTPUT);
+	//E
+	DIO_u8SetPinDirection(DIO_PORTB,DIO_PIN2,DIO_PIN_OUTPUT);
+	//Data pins
+	DIO_u8SetPortDirection(DIO_PORTA, DIO_PORT_OUTPUT);
+	CLCD_voidInit();
+	
+	 /*Initialize EXTI*/
+	EXTI_voidInit(EXTI_INT0,EXTI_SENSE_RISING_EGDE);
+	EXTI_callBack_INT0(&SW_ICU);
+	/*TIMERS INIT*/
+	TIMER0_voidInit();
+	TIMER1_voidInit();
+
+	/*GIE*/
+	GIE_voidEnable();
+
+	while (1)
+	{
+		
+		while((SW_ICU_TotalTicks ==0 ) && (SW_ICU_OnTicks==0));
+		
+		SW_ICU_DutyCycle=(SW_ICU_OnTicks/SW_ICU_TotalTicks)*100;
+		CLCD_u8SetPos(0,0);
+		CLCD_u8SendString("D=");
+		CLCD_writeNumber(SW_ICU_DutyCycle);
+		CLCD_u8SetPos(0,5);
+		CLCD_u8SendString("%");
+		CLCD_u8SetPos(0,7);
+		CLCD_u8SendString("F=");
+		CLCD_writeNumber( round(1.0 / (SW_ICU_TotalTicks*TickTime) ) );
+		CLCD_u8SetPos(0,11);
+		CLCD_u8SendString("KHz");
+		CLCD_u8SetPos(1,0);
+		CLCD_u8SendString("T=");
+		CLCD_writeNumber( round(SW_ICU_TotalTicks*TickTime)  );
+		CLCD_u8SetPos(1,4);
+		CLCD_u8SendString("ms");
+		CLCD_u8SetPos(1,7);
+		 COL_NO= round(SW_ICU_DutyCycle*8/100);
+		 for(int i=0;i<=COL_NO;i++)
+		 {
+			 CLCD_u8SendString("-");
+		 }
+		 for(int i=0; i<=8-COL_NO;i++)
+		 {
+			 CLCD_u8SendString("_");
+		 }
+
+
+	}
+	
+	
+}
+
+
+void SW_ICU(void)
+{
+
+	static u16 Local_u16Counter=0;
+	Local_u16Counter++;
+	if(Local_u16Counter == 1)
+	{
+		TIMER1_voidSetTimerValue(0);
+	}
+	if(Local_u16Counter == 2)
+	{
+		SW_ICU_TotalTicks=TIMER1_voidGetTimerValue();
+		EXTI_voidInit(EXTI_INT0,EXTI_SENSE_FALLING_EDGE);
+		
+	}
+	if(Local_u16Counter == 3)
+	{
+		SW_ICU_OnTicks=TIMER1_voidGetTimerValue()-SW_ICU_TotalTicks;
+		EXTI_voidInterruptDisbale(EXTI_INT0);
+	}
+
+}
